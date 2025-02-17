@@ -1,2 +1,1 @@
-# CS2-trocador-sdk
-Testes
+Ainda não está finalizado.
