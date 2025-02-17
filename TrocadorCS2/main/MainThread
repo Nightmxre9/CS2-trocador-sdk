@@ -1,0 +1,85 @@
+#include "Memory.h"
+#include <Windows.h>
+#include <iostream>
+#include <thread>
+#include <chrono>
+#include <array>
+
+namespace offset {
+    constexpr std::ptrdiff_t dwLocalPlayerPawn = 0x17371A8;
+    constexpr std::ptrdiff_t dwEntityList = 0x18C2D58;
+    constexpr std::ptrdiff_t m_iPlayerState = 0x1404;
+    constexpr std::ptrdiff_t m_hMyWeapons = 0x40;
+    constexpr std::ptrdiff_t m_flFallbackWear = 0x1550;
+    constexpr std::ptrdiff_t m_nFallbackPaintKit = 0x1548;
+    constexpr std::ptrdiff_t m_iItemDefinitionIndex = 0x1BA;
+    constexpr std::ptrdiff_t m_iItemIDHigh = 0x1D0;
+}
+
+constexpr int ObterPinturaArma(const short& itemDefinition) {
+    switch (itemDefinition) {
+        case 1: return 645;  // Desert Eagle
+        case 2: return 437;  // Glock-18
+        case 7: return 44;   // AK-47
+        case 9: return 279;  // AWP
+        case 61: return 290; // USP-S
+        default: return 0;
+    }
+}
+
+DWORD WINAPI MainThread(HMODULE hModule) {
+    // Alocar console para depuração
+    AllocConsole();
+    FILE* fDummy;
+    freopen_s(&fDummy, "CONOUT$", "w", stdout);
+
+    std::cout << "[INFO] Iniciando o modificador de skins..." << std::endl;
+
+    Memory mem("cs2.exe");
+
+    // Obtendo endereço do client.dll
+    std::string nome_modulo = "client.dll";
+    const auto client = mem.GetModuleAddress(nome_modulo);
+
+    if (client == 0) {
+        std::cerr << "[ERRO] Falha ao encontrar client.dll" << std::endl;
+        FreeConsole();
+        FreeLibraryAndExitThread(hModule, 0);
+        return 0;
+    }
+
+    while (true) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5)); // Está Reduzindo o uso da CPU
+
+        const auto localPlayer = mem.Read<std::uintptr_t>(client + offset::dwLocalPlayerPawn);
+        if (localPlayer == 0) continue;
+
+        const auto armas = mem.Read<std::array<unsigned long, 8>>(localPlayer + offset::m_hMyWeapons);
+
+        for (const auto& handle : armas) {
+            const auto arma = mem.Read<std::uintptr_t>(client + offset::dwEntityList + ((handle & 0xFFF) * 0x10) - 0x10);
+            if (!arma) continue;
+
+            const auto pintura = ObterPinturaArma(mem.Read<short>(arma + offset::m_iItemDefinitionIndex));
+            if (pintura != 0) {
+                if (mem.Read<int>(arma + offset::m_nFallbackPaintKit) != pintura) {
+                    mem.Write<int>(arma + offset::m_iItemIDHigh, -1);
+                    mem.Write<int>(arma + offset::m_nFallbackPaintKit, pintura);
+                    mem.Write<float>(arma + offset::m_flFallbackWear, 0.1f);
+
+                    auto playerState = mem.Read<std::uintptr_t>(client + offset::m_iPlayerState);
+                    if (playerState) {
+                        mem.Write<int>(playerState + 0x174, -1);
+                        std::cout << "[INFO] Skin da arma atualizada." << std::endl;
+                    }
+                }
+            }
+        }
+    }
+
+    return 0;
+}
+
+int main() {
+    return 0;
+}
